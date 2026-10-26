@@ -1,0 +1,247 @@
+// app/api/inventory/batch/route.js
+
+import prisma from '@/lib/prisma';
+import { getAuth } from '@clerk/nextjs/server';
+import authSeller from '@/middlewares/authSeller';
+import { verifyEmployeeToken, hasPermission, PERMISSIONS } from '@/middlewares/authEmployee';
+import { NextResponse } from 'next/server';
+
+export async function POST(request) {
+  try {
+
+    // ─────────────────────────────────────────────────────────
+    // AUTH — store owner OR employee with inventory permission
+    // ─────────────────────────────────────────────────────────
+    let storeId = null;
+
+    const employee = verifyEmployeeToken(request);
+    if (employee) {
+      if (!hasPermission(employee, PERMISSIONS.MANAGE_INVENTORY)) {
+        return NextResponse.json({ error: 'No inventory permission' }, { status: 403 });
+      }
+      storeId = employee.storeId;
+    } else {
+      const { userId } = getAuth(request);
+      if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      storeId = await authSeller(userId);
+      if (!storeId) return NextResponse.json({ error: 'Not a store owner' }, { status: 403 });
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // BODY
+    // ─────────────────────────────────────────────────────────
+
+    const {
+      productId,
+      variantId,
+      quantity,
+      expiryDate,
+      batchNumber,
+    } = await request.json();
+
+    // ─────────────────────────────────────────────────────────
+    // VALIDATION
+    // ─────────────────────────────────────────────────────────
+
+    if (!productId) {
+      return NextResponse.json(
+        { error: 'productId is required' },
+        { status: 400 }
+      );
+    }
+
+    const qty = Number(quantity);
+
+    if (!qty || qty <= 0) {
+      return NextResponse.json(
+        { error: 'quantity must be greater than 0' },
+        { status: 400 }
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // VERIFY PRODUCT
+    // ─────────────────────────────────────────────────────────
+
+    const product = await prisma.product.findFirst({
+      where: {
+        id: productId,
+        storeId,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!product) {
+      return NextResponse.json(
+        { error: 'Product not found' },
+        { status: 404 }
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // VERIFY VARIANT
+    // ─────────────────────────────────────────────────────────
+
+    if (variantId) {
+
+      const variant = await prisma.productVariant.findFirst({
+        where: {
+          id: variantId,
+          productId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!variant) {
+        return NextResponse.json(
+          { error: 'Variant not found' },
+          { status: 404 }
+        );
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // OPTIONAL EXPIRY
+    // ─────────────────────────────────────────────────────────
+
+    const expiry = expiryDate
+      ? new Date(expiryDate)
+      : null;
+
+    // ─────────────────────────────────────────────────────────
+    // TRANSACTION
+    // ONLY CREATE BATCH INSIDE TRANSACTION
+    // KEEP IT VERY FAST
+    // ─────────────────────────────────────────────────────────
+
+    const result = await prisma.$transaction(
+      async (tx) => {
+
+        // ─────────────────────────────────────────────────────
+        // DUPLICATE GUARD
+        // Prevent duplicate stock creation
+        // ─────────────────────────────────────────────────────
+
+        const recentCutoff = new Date(
+          Date.now() - 10000
+        );
+
+        const existing = await tx.productBatch.findFirst({
+          where: {
+            productId,
+            variantId: variantId || null,
+            quantity: qty,
+            expiryDate: expiry,
+            createdAt: {
+              gte: recentCutoff,
+            },
+          },
+        });
+
+        // Duplicate request found
+        if (existing) {
+          return {
+            batch: existing,
+            duplicate: true,
+          };
+        }
+
+        // ─────────────────────────────────────────────────────
+        // CREATE BATCH
+        // ─────────────────────────────────────────────────────
+
+        const batch = await tx.productBatch.create({
+          data: {
+            productId,
+            variantId: variantId || null,
+            batchNumber:
+              batchNumber?.trim() || null,
+            expiryDate: expiry,
+            quantity: qty,
+            remainingQty: qty,
+          },
+        });
+
+        return {
+          batch,
+          duplicate: false,
+        };
+      },
+
+      // optional timeout increase
+      {
+        timeout: 10000,
+      }
+    );
+
+    // ─────────────────────────────────────────────────────────
+    // SKIP STOCK UPDATE IF DUPLICATE
+    // ─────────────────────────────────────────────────────────
+
+    let totalStock = null;
+
+    if (!result.duplicate) {
+
+      // ───────────────────────────────────────────────────────
+      // UPDATE VARIANT STOCK + INVENTORY (variant-level)
+      // ───────────────────────────────────────────────────────
+
+      if (variantId) {
+        const updatedVariant = await prisma.productVariant.update({
+          where: { id: variantId },
+          data: { stock: { increment: qty } },
+          select: { stock: true },
+        });
+        totalStock = updatedVariant.stock;
+
+        // Upsert Inventory at variant level
+        await prisma.inventory.upsert({
+          where: { variantId },
+          update: { quantity: { increment: qty } },
+          create: {
+            variantId,
+            storeId,
+            quantity: qty,
+            lowStock: 5,
+          },
+        });
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // SUCCESS RESPONSE
+    // ─────────────────────────────────────────────────────────
+
+    return NextResponse.json({
+      success: true,
+      duplicate: result.duplicate || false,
+      batch: result.batch,
+      totalStock,
+      message: result.duplicate
+        ? 'Duplicate request prevented'
+        : 'Stock added successfully',
+    });
+
+  } catch (error) {
+
+    console.error(
+      'POST /api/inventory/batch error:',
+      error
+    );
+
+    return NextResponse.json(
+      {
+        error:
+          error.message ||
+          'Internal server error',
+      },
+      {
+        status: 500,
+      }
+    );
+  }
+}
