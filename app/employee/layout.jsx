@@ -5,6 +5,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import Loading from '@/components/Loading';
 import EmployeeNavbar from '@/components/employee/EmployeeNavbar';
 import EmployeeSidebar from '@/components/employee/EmployeeSidebar';
+import PoweredBy from '@/components/PoweredBy';
 
 export default function EmployeeLayout({ children }) {
   const router   = useRouter();
@@ -77,9 +78,10 @@ export default function EmployeeLayout({ children }) {
         {/* ✅ Removed p-5 / lg:pl-12 / lg:pt-12 */}
         <div className="flex-1 h-full overflow-y-auto bg-slate-50">
           {children}
-          <div className="pb-4 text-center text-xs text-slate-400">
+          <div className="pb-2 text-center text-xs text-slate-400">
             <p>© {new Date().getFullYear()} {storeInfo?.name} • Employee Portal</p>
           </div>
+          <PoweredBy />
         </div>
       </div>
     </div>

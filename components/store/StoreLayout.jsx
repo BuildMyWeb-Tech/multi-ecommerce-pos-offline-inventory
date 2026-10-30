@@ -8,6 +8,7 @@ import SellerNavbar from './StoreNavbar';
 import SellerSidebar from './StoreSidebar';
 import { useAuth, SignIn } from '@clerk/nextjs';
 import axios from 'axios';
+import PoweredBy from '@/components/PoweredBy';
 
 const StoreLayout = ({ children }) => {
   const { getToken, isLoaded, isSignedIn } = useAuth();
@@ -130,12 +131,13 @@ const StoreLayout = ({ children }) => {
           {/* ✅ Removed p-5 / lg:pl-12 / lg:pt-12 and decorative blobs that constrained width */}
           <div className="flex-1 h-full overflow-y-auto hide-scrollbar bg-slate-50 relative">
             <div className="relative z-10">{children}</div>
-            <div className="pb-4 text-center text-xs text-slate-400 relative z-10">
+            <div className="pb-2 text-center text-xs text-slate-400 relative z-10">
               <p>
                 © {new Date().getFullYear()}{' '}
                 {storeInfo?.name || 'Store Dashboard'} • All Rights Reserved
               </p>
             </div>
+            <PoweredBy className="relative z-10" />
           </div>
         </div>
       </div>

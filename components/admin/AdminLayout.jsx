@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import AdminNavbar from './AdminNavbar';
 import AdminSidebar from './AdminSidebar';
+import PoweredBy from '@/components/PoweredBy';
 
 const AdminLayout = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -42,6 +43,7 @@ const AdminLayout = ({ children }) => {
         {/* ✅ Removed p-4/md:p-6/lg:p-8 and max-w-7xl mx-auto — pages control their own spacing now */}
         <div className="flex-1 h-full overflow-y-auto">
           {children}
+          <PoweredBy />
         </div>
       </div>
     </div>

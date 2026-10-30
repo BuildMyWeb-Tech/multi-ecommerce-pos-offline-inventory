@@ -149,14 +149,15 @@ const Footer = () => {
           </p>
 
           <p>
-            Designed & Developed by{" "}
-            <Link
-              href="https://buildmyweb.info/"
+            Powered by{" "}
+            <a
+              href="http://buildmyweb.info/"
               target="_blank"
-              className="text-green-600 hover:underline"
+              rel="noopener noreferrer"
+              className="text-green-600 hover:underline font-medium"
             >
               BuildMyWeb
-            </Link>
+            </a>
           </p>
         </div>
 
